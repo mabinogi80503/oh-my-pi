@@ -55,6 +55,28 @@ function optionalTools(args: Record<string, unknown>): string[] | undefined {
 	return args.tools;
 }
 
+/**
+ * Raw caller model selector for the pool: a single selector or an ordered
+ * candidate list. Left raw so role aliases keep their role identity (and
+ * their configured fallback chain) during policy resolution.
+ */
+function optionalModel(args: Record<string, unknown>): string | string[] | undefined {
+	const value = args.model;
+	if (value === undefined) return undefined;
+	if (typeof value === "string") {
+		if (value.trim().length === 0) throw new ToolError("workpool model must be a non-empty string");
+		return value.trim();
+	}
+	if (
+		!Array.isArray(value) ||
+		value.length === 0 ||
+		!value.every((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+	) {
+		throw new ToolError("workpool model must be a non-empty string or an array of non-empty strings");
+	}
+	return value.map(entry => entry.trim());
+}
+
 function getPool(options: EvalWorkpoolBridgeOptions, name: string) {
 	const ownerId = options.session.getAgentId?.() ?? MAIN_AGENT_ID;
 	const pool = WorkPoolRegistry.global().get(ownerId, name);
@@ -73,6 +95,7 @@ export async function runEvalWorkpool(args: unknown, options: EvalWorkpoolBridge
 		const requestedName = optionalString(record, "name");
 		const context = optionalString(record, "context");
 		const tools = optionalTools(record);
+		const model = optionalModel(record);
 		if (tools?.length && options.session.getPlanModeState?.()?.enabled === true) {
 			throw new ToolError("Eval-defined tools are unavailable in plan mode.");
 		}
@@ -81,6 +104,7 @@ export async function runEvalWorkpool(args: unknown, options: EvalWorkpoolBridge
 			invocationKind: "eval",
 			assignment: `Create workpool ${requestedName ?? agent ?? "worker"}`,
 			...(agent ? { agent } : {}),
+			...(model !== undefined ? { model } : {}),
 		});
 		const customTools = tools?.length
 			? createEvalCustomTools(options.session, await describeEvalTools(options.session, tools, options.signal))
@@ -100,6 +124,7 @@ export async function runEvalWorkpool(args: unknown, options: EvalWorkpoolBridge
 			policy,
 			...(context ? { context } : {}),
 			customTools,
+			...(model !== undefined ? { model } : {}),
 		});
 		options.emitStatus?.({ op: "workpool", action: "create", pool: name, count: pool.limit() });
 		return { name, agent: policy.agentName, limit: pool.limit() };

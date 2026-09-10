@@ -54,7 +54,8 @@ describe("eval tool description", () => {
 		const text = getEvalToolDescription({ py: true, js: true, spawns: true });
 		expect(text).toContain("agent(prompt");
 		expect(text).toContain("ordered list of candidates");
-		expect(text).toContain("no outside fallback");
+		expect(text).toContain("configured fallback chains still apply");
+		expect(text).not.toContain("no outside fallback");
 	});
 
 	it("omits agent() when the session forbids spawning", () => {

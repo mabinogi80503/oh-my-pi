@@ -220,6 +220,37 @@ describe("WorkPool dispatch", () => {
 		follow.resolve();
 		await finishPool(session, workpool);
 	});
+
+	it("selects the pool model on a worker's first turn and not on its follow-up", async () => {
+		const session = makeSession([], 1);
+		const first = Promise.withResolvers<void>();
+		const follow = Promise.withResolvers<void>();
+		const firstTurn = vi.spyOn(structured, "runStructuredSubagent").mockImplementation(async request => {
+			await first.promise;
+			const id = request.identity?.id ?? "missing";
+			markIdle(id);
+			return execution(id);
+		});
+		const followSpy = vi.spyOn(executor, "runSubagentFollowUpTurn").mockImplementation(async options => {
+			await follow.promise;
+			markIdle(options.id);
+			return singleResult(options.id, "second batch");
+		});
+		const workpool = new WorkPool(session, {
+			name: "modelled",
+			policy: POLICY,
+			model: ["@reviewer", "openai/gpt-4o"],
+		});
+		workpool.push(["first", "second"]);
+		await until(() => workpool.agents[0]?.queue.length === 1);
+		first.resolve();
+		await until(() => followSpy.mock.calls.length === 1);
+
+		expect(firstTurn.mock.calls[0]?.[0].model).toEqual(["@reviewer", "openai/gpt-4o"]);
+		expect(followSpy.mock.calls[0]?.[0]).not.toHaveProperty("model");
+		follow.resolve();
+		await finishPool(session, workpool);
+	});
 	it("tombstones the worker session when clearing the yield contract fails", async () => {
 		const session = makeSession([], 1);
 		let workerId = "";

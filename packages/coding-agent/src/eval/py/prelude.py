@@ -877,7 +877,7 @@ if "__omp_prelude_loaded__" not in globals():
         def __repr__(self):
             return f"<workpool {self.name} ({self.agent}) {self.limit} agents>"
 
-    def workpool(agent=None, *, name=None, context=None, tools=None):
+    def workpool(agent=None, *, name=None, context=None, tools=None, model=None):
         """Create a pool of keep-alive subagents."""
         args = {"op": "create"}
         if agent is not None:
@@ -888,6 +888,8 @@ if "__omp_prelude_loaded__" not in globals():
             args["context"] = context
         if tools is not None:
             args["tools"] = list(tools)
+        if model is not None:
+            args["model"] = model if isinstance(model, str) else list(model)
         result = _bridge_call("__workpool__", args)
         if not isinstance(result, dict) or not isinstance(result.get("name"), str):
             raise RuntimeError("workpool() did not return a pool")

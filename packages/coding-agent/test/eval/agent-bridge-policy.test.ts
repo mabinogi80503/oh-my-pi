@@ -371,17 +371,7 @@ describe("runEvalAgent", () => {
 		expect(secondOptions.outputSchemaOverridesAgent).toBeUndefined();
 	});
 
-	it("fails a per-call model before dispatch when the registry is unavailable", async () => {
-		mockAgents();
-		const runSpy = vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(async options => singleResult(options));
-
-		await expect(runEvalAgent({ prompt: "work", model: "default" }, { session: makeSession() })).rejects.toThrow(
-			/Requested model candidates default.*model registry unavailable/,
-		);
-		expect(runSpy).not.toHaveBeenCalled();
-	});
-
-	it("gives caller model candidates precedence and keeps their order", async () => {
+	it("gives caller model candidates precedence and keeps their raw order", async () => {
 		const fixture = await makeModelFixture();
 		mockAgents();
 		const runSpy = vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(async options => singleResult(options));
@@ -404,11 +394,14 @@ describe("runEvalAgent", () => {
 		);
 
 		expect(runSpy).toHaveBeenCalledTimes(1);
-		expect(runSpy.mock.calls[0]?.[0].modelOverride).toEqual(["anthropic/claude-sonnet-4-5"]);
-		expect(result.details.model).toEqual(["anthropic/claude-sonnet-4-5"]);
+		expect(runSpy.mock.calls[0]?.[0].modelOverride).toEqual([
+			"anthropic/missing-model",
+			"anthropic/claude-sonnet-4-5",
+		]);
+		expect(result.details.model).toEqual(["anthropic/missing-model", "anthropic/claude-sonnet-4-5"]);
 	});
 
-	it("rejects unavailable caller models before registering a job or reserving its id", async () => {
+	it("rejects an empty caller model before registering a job or reserving its id", async () => {
 		const fixture = await makeModelFixture();
 		mockAgents();
 		const runSpy = vi.spyOn(taskExecutor, "runSubprocess").mockImplementation(async options => singleResult(options));
@@ -419,9 +412,7 @@ describe("runEvalAgent", () => {
 			outputManager,
 		});
 
-		await expect(
-			runEvalAgent({ prompt: "unavailable", model: "anthropic/missing-model", label: "Stable" }, { session }),
-		).rejects.toThrow(/Requested model candidates anthropic\/missing-model are unavailable/);
+		await expect(runEvalAgent({ prompt: "empty", model: "   ", label: "Stable" }, { session })).rejects.toThrow();
 		expect(session.asyncJobManager?.getAllJobs()).toEqual([]);
 		expect(runSpy).not.toHaveBeenCalled();
 

@@ -138,7 +138,7 @@ describe("task async preflight", () => {
 		const result = await tool.execute("mixed-preflight", {
 			context: "Shared context.",
 			tasks: [
-				{ name: "Invalid", agent: "task", task: "Do invalid work.", model: "missing/model" },
+				{ name: "Invalid", agent: "missing-one", task: "Do invalid work.", model: "openai/gpt-4.1-mini" },
 				{ name: "AlsoInvalid", agent: "also-missing", task: "Do more invalid work." },
 				{ name: "Valid", agent: "task", task: "Do valid work." },
 			],
@@ -146,7 +146,7 @@ describe("task async preflight", () => {
 
 		const text = textOf(result);
 		expect(result.isError).toBe(true);
-		expect(text).toContain("Task Invalid failed preflight: Requested model candidates missing/model");
+		expect(text).toContain('Task Invalid failed preflight: Unknown agent "missing-one"');
 		expect(text).toContain('Task AlsoInvalid failed preflight: Unknown agent "also-missing"');
 		expect(register).not.toHaveBeenCalled();
 		expect(runSubprocess).not.toHaveBeenCalled();
@@ -171,13 +171,13 @@ describe("task async preflight", () => {
 		const result = await tool.execute("sync-preflight", {
 			context: "Shared context.",
 			tasks: [
-				{ name: "Invalid", agent: "task", task: "Do invalid work.", model: "missing/model" },
+				{ name: "Invalid", agent: "also-missing", task: "Do invalid work." },
 				{ name: "Valid", agent: "task", task: "Do valid work.", model: "openai/gpt-4.1-mini" },
 			],
 		} as TaskParams);
 
 		expect(result.isError).toBe(true);
-		expect(textOf(result)).toContain("Task Invalid failed preflight: Requested model candidates missing/model");
+		expect(textOf(result)).toContain('Task Invalid failed preflight: Unknown agent "also-missing"');
 		expect(register).not.toHaveBeenCalled();
 		expect(runSubprocess).not.toHaveBeenCalled();
 		expect(jobs.getJob("Invalid")).toBeUndefined();
