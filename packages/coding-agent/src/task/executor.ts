@@ -243,8 +243,9 @@ function installSubagentRetryFallbackChain(args: {
 	inheritedFallbackChain: string[] | undefined;
 	model: Model<Api> | undefined;
 	authFallbackUsed: boolean;
+	modelSelectionClosed?: boolean;
 }): string | undefined {
-	const { settings, id, candidates, inheritedFallbackChain, model, authFallbackUsed } = args;
+	const { settings, id, candidates, inheritedFallbackChain, model, authFallbackUsed, modelSelectionClosed } = args;
 	if (!model || authFallbackUsed || candidates.length === 0) return undefined;
 
 	const selectedIndex = candidates.findIndex(
@@ -252,7 +253,7 @@ function installSubagentRetryFallbackChain(args: {
 	);
 	if (selectedIndex < 0) return undefined;
 	const fallbackSelectors = candidates.slice(selectedIndex + 1).map(candidate => candidate.selector);
-	const existingFallbackChains = settings.get("retry.fallbackChains");
+	const existingFallbackChains = modelSelectionClosed ? {} : settings.get("retry.fallbackChains");
 	// A single configured model may reuse its role's (or the default) configured chain, but never an implicit parent fallback.
 	const fallbackChain = fallbackSelectors.length > 0 ? fallbackSelectors : inheritedFallbackChain;
 	if (
@@ -417,6 +418,8 @@ export interface ExecutorOptions {
 	 */
 	detached?: boolean;
 	modelOverride?: string | string[];
+	/** Caller candidates are a closed set and must not inherit parent/default fallbacks. */
+	modelSelectionClosed?: boolean;
 	/** Explicit pre-expansion model role alias selected for this run. */
 	modelRole?: string;
 	/**
@@ -3014,6 +3017,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		worktree,
 		modelOverride,
 		modelRole,
+		modelSelectionClosed,
 		thinkingLevel,
 		outputSchema,
 		enableLsp,
@@ -3250,8 +3254,11 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			checkAbort();
 
 			const configuredModelPatterns = resolveConfiguredModelPatterns(modelPatterns, settings);
+			if (modelSelectionClosed) {
+				subagentSettings.override("retry.fallbackChains", {});
+			}
 			const inheritedRetryFallbackChain =
-				configuredModelPatterns.length === 1
+				!modelSelectionClosed && configuredModelPatterns.length === 1
 					? resolveSubagentInheritedRetryFallbackChain(
 							subagentSettings,
 							modelRegistry,
@@ -3267,7 +3274,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			} = await awaitAbortable(
 				resolveModelOverrideWithAuthFallback(
 					modelPatterns,
-					options.parentActiveModelPattern,
+					modelSelectionClosed ? undefined : options.parentActiveModelPattern,
 					modelRegistry,
 					settings,
 					id,
@@ -3294,6 +3301,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				inheritedFallbackChain: inheritedRetryFallbackChain,
 				model,
 				authFallbackUsed,
+				modelSelectionClosed,
 			});
 			if (retryFallbackRole) {
 				logger.debug("Configured subagent runtime model fallback chain", {
@@ -3442,11 +3450,15 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				model,
 				modelPattern: model || modelOverride === undefined ? undefined : modelPatterns,
 				modelPatternAuthFallback:
-					model || modelOverride === undefined ? undefined : options.parentActiveModelPattern,
+					modelSelectionClosed || model || modelOverride === undefined
+						? undefined
+						: options.parentActiveModelPattern,
 				modelPatternFallbackRole:
-					model || modelOverride === undefined ? undefined : `${SUBAGENT_RETRY_FALLBACK_ROLE_PREFIX}${id}`,
+					modelSelectionClosed || model || modelOverride === undefined
+						? undefined
+						: `${SUBAGENT_RETRY_FALLBACK_ROLE_PREFIX}${id}`,
 				modelPatternDefaultFallbackChain:
-					model || modelOverride === undefined ? undefined : inheritedRetryFallbackChain,
+					modelSelectionClosed || model || modelOverride === undefined ? undefined : inheritedRetryFallbackChain,
 				thinkingLevel: effectiveThinkingLevel,
 				thinkingLevelCeiling: spawnEffortCeiling,
 				toolNames,
