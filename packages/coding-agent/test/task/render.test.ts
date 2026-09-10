@@ -231,7 +231,7 @@ describe("task live progress rendering", () => {
 			details,
 			true,
 			uiTheme,
-			"Task failed preflight:\tRequested model candidates provider/very-long-selector-that-must-truncate",
+			"Task failed preflight:\tUnknown agent very-long-agent-name-that-must-truncate-here",
 			true,
 			48,
 		);

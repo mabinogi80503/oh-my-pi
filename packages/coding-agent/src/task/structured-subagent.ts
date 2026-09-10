@@ -8,7 +8,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import path from "node:path";
 import { $env, prompt, Snowflake } from "@oh-my-pi/pi-utils";
-import { resolveAgentModelSelection, resolveStrictModelCandidates } from "../config/model-resolver";
+import { resolveAgentModelSelection, resolveConfiguredModelPatterns } from "../config/model-resolver";
 import type { CustomTool } from "../extensibility/custom-tools/types";
 import type { LocalProtocolOptions } from "../internal-urls";
 import { registerArtifactsDir } from "../internal-urls/registry-helpers";
@@ -137,8 +137,6 @@ export interface EffectiveSubagentPolicy {
 	agent: AgentDefinition;
 	effectiveAgent: AgentDefinition;
 	modelOverride?: string | string[];
-	/** Caller supplied candidates form a closed selection boundary. */
-	modelSelectionClosed?: boolean;
 	/** Explicit pre-expansion model role alias selected for this run. */
 	modelRole?: string;
 	parentActiveModelPattern?: string;
@@ -308,12 +306,6 @@ export async function resolveEffectiveSubagentPolicy(
 		activeModelPattern: parentActiveModelPattern,
 		fallbackModelPattern: request.session.getModelString?.(),
 	};
-	// Role identity and patterns come from one call so they cannot be derived
-	// from different sources: the expansion below discards the alias, and the
-	// child's inherited retry-fallback chain is keyed off the role.
-	let modelOverride: string | string[] | undefined;
-	let modelRole: string | undefined;
-	let modelSelectionClosed = false;
 	if (request.model !== undefined) {
 		const candidates = typeof request.model === "string" ? [request.model] : request.model;
 		if (candidates.length === 0 || candidates.some(candidate => candidate.trim().length === 0)) {
@@ -322,33 +314,18 @@ export async function resolveEffectiveSubagentPolicy(
 				"Caller model candidates must contain at least one non-empty selector.",
 			);
 		}
-		const modelRegistry = request.session.modelRegistry;
-		if (!modelRegistry) {
-			throw new StructuredSubagentError(
-				"preflight",
-				`Requested model candidates ${candidates.join(", ")} cannot be resolved: model registry unavailable.`,
-			);
+		if (resolveConfiguredModelPatterns(request.model, request.session.settings).length === 0) {
+			throw new StructuredSubagentError("preflight", "Caller model selection expands to no model pattern.");
 		}
-		const resolved = await resolveStrictModelCandidates(
-			candidates,
-			modelRegistry,
-			request.session.settings,
-			request.session.getSessionId?.() ?? undefined,
-		);
-		if (resolved.patterns.length === 0) {
-			const reasons = resolved.failures.map(failure => `${failure.pattern}: ${failure.reason}`).join("; ");
-			throw new StructuredSubagentError(
-				"preflight",
-				`Requested model candidates ${candidates.join(", ")} are unavailable (${reasons}).`,
-			);
-		}
-		modelOverride = resolved.patterns;
-		modelSelectionClosed = true;
-	} else {
-		const resolved = resolveAgentModelSelection(modelResolution);
-		modelOverride = resolved.patterns;
-		modelRole = resolved.role;
 	}
+	// Role identity and patterns come from one call so they cannot be derived
+	// from different sources: the expansion discards the alias, and the child's
+	// inherited retry-fallback chain is keyed off the role. The raw caller
+	// selector is the highest-priority source here, so an explicit `@role`
+	// keeps its role (and that role's `retry.fallbackChains` chain) while a
+	// concrete selector stays on the ordinary auth/default fallback path:
+	// per-spawn selection never closes configured fallback chains.
+	const { patterns: modelOverride, role: modelRole } = resolveAgentModelSelection(modelResolution);
 	const isolationEnabled = request.session.settings.get("task.isolation.enabled");
 	const isIsolated = request.isolation?.requested === true;
 	if (isIsolated && !isolationEnabled) {
@@ -364,7 +341,6 @@ export async function resolveEffectiveSubagentPolicy(
 		effectiveAgent,
 		modelOverride,
 		modelRole,
-		modelSelectionClosed,
 		parentActiveModelPattern,
 		schema,
 		planMode,
@@ -462,7 +438,6 @@ function buildExecutorOptions(
 		invokedAt: request.invokedAt,
 		acquiredAt: request.acquiredAt,
 		modelOverride: policy.modelOverride,
-		modelSelectionClosed: policy.modelSelectionClosed,
 		modelRole: policy.modelRole,
 		parentActiveModelPattern: policy.parentActiveModelPattern,
 		thinkingLevel: policy.effectiveAgent.thinkingLevel,

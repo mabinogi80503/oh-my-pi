@@ -174,18 +174,20 @@ describe("task.batch schema gating", () => {
 		expect(tool.description).not.toContain("Concurrent edits to the same files auto-resolve");
 	});
 
-	it("describes caller-owned model selectors and per-item ordered batch candidates", async () => {
+	it("describes caller-owned model selectors that keep configured fallback chains", async () => {
 		mockDiscovery();
 		const flat = await TaskTool.create(createSession({ settings: { "task.batch": false } }));
 		expect(flat.description).toContain("model");
 		expect(flat.description).toContain("ordered");
-		expect(flat.description).toContain("does not fall back");
+		expect(flat.description).toContain("configured fallback chains still apply");
+		expect(flat.description).not.toContain("does not fall back");
 
 		const batch = await TaskTool.create(createSession({ settings: { "task.batch": true } }));
 		expect(batch.description).toContain("on the flat task or on each batch item");
 		expect(batch.description).toContain("model");
 		expect(batch.description).toContain("ordered");
-		expect(batch.description).toContain("does not fall back");
+		expect(batch.description).toContain("configured fallbacks still apply");
+		expect(batch.description).not.toContain("does not fall back");
 	});
 
 	it("describes a restricted specialist as the spawn-policy default", async () => {
@@ -307,12 +309,12 @@ describe("task.batch validation", () => {
 		expect(text).toContain("Top-level `model` cannot be used with batch `tasks[]`");
 	});
 
-	it.each(["", "  ", [], ["provider/first", " "]])("rejects empty batch item model %j", async model => {
+	it.each([[""], ["  "], [[]], [["provider/first", " "]]])("rejects empty batch item model %j", async model => {
 		const text = await executeText(
 			{ context: "Shared.", tasks: [{ name: "Bad", task: "Work.", model }] },
 			{ "task.batch": true },
 		);
-		expect(text).toMatch(/model must be a non-empty|Requested model candidates provider\/first/);
+		expect(text).toMatch(/model must be a non-empty/);
 	});
 
 	it("rejects empty task arrays and items without tasks", async () => {

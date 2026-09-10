@@ -298,8 +298,7 @@ describe("structured subagent primitive", () => {
 		roleSession.settings.override("task.agentModelOverrides", { worker: "@override" });
 
 		const requestPolicy = await resolveEffectiveSubagentPolicy(request({ session: roleSession, model: "@request" }));
-		expect(requestPolicy.modelRole).toBeUndefined();
-		expect(requestPolicy.modelSelectionClosed).toBe(true);
+		expect(requestPolicy.modelRole).toBe("request");
 		expect(requestPolicy.modelOverride).toEqual(["openai/gpt-4o"]);
 
 		const overridePolicy = await resolveEffectiveSubagentPolicy(request({ session: roleSession }));
@@ -323,7 +322,17 @@ describe("structured subagent primitive", () => {
 		expect(definitionPolicy.modelRole).toBe("definition");
 	});
 
-	it("forwards caller role aliases as concrete closed candidates", async () => {
+	it.each([
+		[",", session()],
+		["@empty", session({ modelRoles: { empty: "" } })],
+	])("rejects a caller model selector that expands to no patterns: %s", async (model, childSession) => {
+		mockDiscovery();
+		await expect(resolveEffectiveSubagentPolicy(request({ session: childSession, model }))).rejects.toThrow(
+			"Caller model selection expands to no model pattern.",
+		);
+	});
+
+	it("expands a caller role alias while preserving the role identity", async () => {
 		const agent = { ...AGENT, model: ["frontmatter/agent"] };
 		mockDiscovery(agent);
 		const models = [
@@ -351,9 +360,10 @@ describe("structured subagent primitive", () => {
 			request({ session: childSession, model: ["@request", "fallback/caller"], retainArtifacts: true }),
 		);
 
-		expect(settled.policy.modelRole).toBeUndefined();
-		expect(settled.policy.modelOverride).toEqual(["primary/caller", "fallback/caller"]);
-		expect(dispatched[0]?.modelOverride).toEqual(["primary/caller", "fallback/caller"]);
+		expect(settled.policy.modelRole).toBe("request");
+		expect(settled.policy.modelOverride).toEqual(["primary/caller", "secondary/role-only", "fallback/caller"]);
+		expect(dispatched[0]?.modelOverride).toEqual(["primary/caller", "secondary/role-only", "fallback/caller"]);
+		expect(dispatched[0]?.modelRole).toBe("request");
 		await fs.rm(settled.artifactsDir, { recursive: true, force: true });
 	});
 
@@ -439,58 +449,24 @@ describe("structured subagent primitive", () => {
 		await fs.rm(settled.artifactsDir, { recursive: true, force: true });
 	});
 
-	it("fails caller model preflight closed when the session registry is unavailable", async () => {
-		mockDiscovery();
-		const childSession = session();
-		childSession.modelRegistry = undefined;
-		const dispatch = vi.spyOn(executorModule, "runSubprocess");
-		const artifactsBefore = artifactsDirsFromRegistry().length;
-
-		await expect(runStructuredSubagent(request({ session: childSession, model: "openai/gpt-4o" }))).rejects.toThrow(
-			"model registry unavailable",
-		);
-		expect(dispatch).not.toHaveBeenCalled();
-		expect(artifactsDirsFromRegistry().length).toBe(artifactsBefore);
-	});
-
-	it("keeps the caller candidate order while skipping an unavailable first candidate", async () => {
+	it("keeps the raw caller candidate order for downstream fallback resolution", async () => {
 		mockDiscovery();
 		const policy = await resolveEffectiveSubagentPolicy(
 			request({ model: ["unknown/provider-model", "openai/gpt-4o"] }),
 		);
 
-		expect(policy.modelSelectionClosed).toBe(true);
-		expect(policy.modelOverride).toEqual(["openai/gpt-4o"]);
+		expect(policy.modelOverride).toEqual(["unknown/provider-model", "openai/gpt-4o"]);
+		expect(policy.modelRole).toBeUndefined();
 	});
 
-	it("reports every caller candidate reason before leasing or dispatch", async () => {
+	it("resolves a caller selector without a session model registry", async () => {
 		mockDiscovery();
 		const childSession = session();
-		childSession.settings.override("disabledProviders", ["disabled"]);
-		childSession.modelRegistry = {
-			getAvailable: () => [],
-			getAll: () =>
-				[
-					{ provider: "disabled", id: "provider-model" },
-					{ provider: "missing", id: "credential-model" },
-				] as never,
-			getApiKey: async () => undefined,
-		} as never;
-		const dispatch = vi.spyOn(executorModule, "runSubprocess");
-		const artifactsBefore = artifactsDirsFromRegistry().length;
+		childSession.modelRegistry = undefined;
 
-		await expect(
-			runStructuredSubagent(
-				request({
-					session: childSession,
-					model: ["unknown/provider-model", "disabled/provider-model", "missing/credential-model"],
-				}),
-			),
-		).rejects.toThrow(
-			/unknown\/provider-model: unknown.*disabled\/provider-model: disabled-provider.*missing\/credential-model: missing-credentials/,
-		);
-		expect(dispatch).not.toHaveBeenCalled();
-		expect(artifactsDirsFromRegistry().length).toBe(artifactsBefore);
+		const policy = await resolveEffectiveSubagentPolicy(request({ session: childSession, model: "openai/gpt-4o" }));
+
+		expect(policy.modelOverride).toEqual(["openai/gpt-4o"]);
 	});
 
 	it("leases temporary artifacts for a retained invocation and registers them for agent URLs", async () => {

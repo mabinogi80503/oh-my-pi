@@ -41,7 +41,7 @@ describe("workflow notice", () => {
 		expect(enabled).toContain("Default to `workpool()`");
 		expect(enabled).toContain("`@tool`");
 		expect(enabled).toContain("ordered candidate list");
-		expect(enabled).toContain("never falls back outside it");
+		expect(enabled).toContain("configured fallback chains still apply");
 		expect(disabled).toContain("Default to `workpool()`");
 		expect(disabled).not.toContain("`@tool`");
 		expect(disabled).not.toContain("tools=None");

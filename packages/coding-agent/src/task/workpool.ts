@@ -88,6 +88,12 @@ export interface WorkPoolCreateOptions {
 	policy: EffectiveSubagentPolicy;
 	context?: string;
 	customTools?: CustomTool[];
+	/**
+	 * Raw caller model selector fixed at pool creation. Applied to every new
+	 * keep-alive worker's first turn; follow-up turns reuse that worker's
+	 * existing session and never re-select.
+	 */
+	model?: string | string[];
 }
 
 interface TurnOutcome {
@@ -107,6 +113,7 @@ export class WorkPool {
 	readonly session: ToolSession;
 	readonly policy: EffectiveSubagentPolicy;
 	readonly context?: string;
+	readonly model?: string | string[];
 	readonly customTools: CustomTool[];
 	readonly freshAgents: boolean;
 	readonly agents: WorkPoolAgent[] = [];
@@ -129,6 +136,7 @@ export class WorkPool {
 		this.session = session;
 		this.policy = options.policy;
 		this.context = options.context;
+		this.model = options.model;
 		this.customTools = options.customTools ?? [];
 		this.freshAgents = session.settings.get("eval.workpool.freshAgents");
 		if (!session.asyncJobManager) {
@@ -379,6 +387,7 @@ export class WorkPool {
 							invocationKind: "eval",
 							assignment: message,
 							...(this.context ? { context: this.context } : {}),
+							...(this.model !== undefined ? { model: this.model } : {}),
 							agent: this.policy.agentName,
 							identity: { id: agent.id },
 							customTools: this.customTools,
